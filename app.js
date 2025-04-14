@@ -7,6 +7,8 @@ const bcrypt = require('bcrypt');
 const jwt = require("jsonwebtoken");
 const upload = require("./config/multerconfig");
 const path = require("path");
+require('dotenv').config();
+
 
 app.set("view engine", 'ejs');
 app.set("views", path.join(__dirname, "views"));
@@ -15,6 +17,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
+const mongoose = require('mongoose');
+mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log("Connected to MongoDB"))
+    .catch(err => console.error("MongoDB connection error:", err));
+
+// Routes
 app.get("/", (req, res) => {
     res.render("index");
 });
@@ -49,10 +57,12 @@ app.post("/post", isLoggedIn, async (req, res) => {
     try {
         let user = await userModel.findOne({ email: req.user.email });
         let { content } = req.body;
+
         let post = await postModel.create({
             user: user._id,
             content,
         });
+
         user.posts.push(post._id);
         await user.save();
         res.redirect("/profile");
@@ -90,6 +100,7 @@ app.get("/like/:id", isLoggedIn, async (req, res) => {
         } else {
             post.likes.splice(post.likes.indexOf(req.user.userid), 1);
         }
+
         await post.save();
         res.redirect("/profile");
     } catch (err) {
@@ -101,12 +112,16 @@ app.get("/like/:id", isLoggedIn, async (req, res) => {
 app.post("/register", async (req, res) => {
     try {
         let { email, username, name, password, age } = req.body;
+
         let user = await userModel.findOne({ email });
         if (user) return res.status(400).redirect("/login");
+
         bcrypt.genSalt(10, (err, salt) => {
             if (err) return res.status(500).send("Error generating salt");
+
             bcrypt.hash(password, salt, async (err, hash) => {
                 if (err) return res.status(500).send("Error hashing password");
+
                 let newUser = await userModel.create({
                     username,
                     email,
@@ -114,7 +129,8 @@ app.post("/register", async (req, res) => {
                     name,
                     password: hash,
                 });
-                let token = jwt.sign({ email: email, userid: newUser._id }, "shhhh");
+
+                let token = jwt.sign({ email: email, userid: newUser._id }, process.env.JWT_SECRET);
                 res.cookie("token", token);
                 res.redirect("/login");
             });
@@ -128,11 +144,13 @@ app.post("/register", async (req, res) => {
 app.post("/login", async (req, res) => {
     try {
         let { email, password } = req.body;
+
         let user = await userModel.findOne({ email });
         if (!user) return res.status(400).send("Invalid email or password");
+
         bcrypt.compare(password, user.password, (err, result) => {
             if (result === true) {
-                let token = jwt.sign({ email: email, userid: user._id }, "shhhh");
+                let token = jwt.sign({ email: email, userid: user._id }, process.env.JWT_SECRET);
                 res.cookie("token", token);
                 res.status(200).redirect("/profile");
             } else {
@@ -158,11 +176,12 @@ app.get("/logout", (req, res) => {
     res.redirect("/login");
 });
 
+
 function isLoggedIn(req, res, next) {
     if (!req.cookies.token) {
         res.redirect("/login");
     } else {
-        jwt.verify(req.cookies.token, "shhhh", (err, data) => {
+        jwt.verify(req.cookies.token, process.env.JWT_SECRET, (err, data) => {
             if (err) {
                 res.redirect("/login");
             } else {
@@ -172,6 +191,7 @@ function isLoggedIn(req, res, next) {
         });
     }
 }
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
